@@ -4,8 +4,6 @@ import { gsap } from 'gsap';
 
 import './DotGrid.css';
 
-
-
 const throttle = (func, limit) => {
   let lastCall = 0;
   return function (...args) {
@@ -169,6 +167,9 @@ const DotGrid = ({
 
   useEffect(() => {
     const onMove = e => {
+      // FIX: Null check for canvasRef
+      if (!canvasRef.current) return;
+
       const now = performance.now();
       const pr = pointerRef.current;
       const dt = pr.lastTime ? now - pr.lastTime : 16;
@@ -218,6 +219,9 @@ const DotGrid = ({
     };
 
     const onClick = e => {
+      // FIX: Null check for canvasRef
+      if (!canvasRef.current) return;
+
       const rect = canvasRef.current.getBoundingClientRect();
       const cx = e.clientX - rect.left;
       const cy = e.clientY - rect.top;
