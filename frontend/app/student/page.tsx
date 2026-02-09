@@ -7,37 +7,9 @@ import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import { 
     Camera, Beaker, Clock, ChevronRight, Bell, 
-    Trophy, ExternalLink, Briefcase, Calendar, FileText,
+    ExternalLink, Briefcase, Calendar, FileText,
     CreditCard 
 } from 'lucide-react'; 
-
-// Helper component for the Important Notice Buttons
-function NoticeButton({ doc, title, icon, color }: any) {
-    const colors: any = {
-        blue: "bg-blue-50 border-blue-100 text-blue-900 hover:bg-blue-100",
-        orange: "bg-orange-50 border-orange-100 text-orange-900 hover:bg-orange-100",
-        red: "bg-red-50 border-red-100 text-red-900 hover:bg-red-100"
-    };
-
-    if (!doc) {
-        return (
-            <div className="p-4 bg-gray-50 rounded-xl border border-dashed border-gray-200 flex flex-col items-center justify-center opacity-60">
-                <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{title} Pending</span>
-            </div>
-        );
-    }
-
-    return (
-        <a href={`${API_URL}/${doc.file_link}`} target="_blank" className={`flex flex-col p-4 rounded-xl border transition-all group shadow-sm ${colors[color]}`}>
-            <div className="flex justify-between items-start mb-2">
-                <div className="p-2 bg-white rounded-lg shadow-sm">{icon}</div>
-                <ExternalLink size={14} className="opacity-40 group-hover:opacity-100 transition-opacity" />
-            </div>
-            <span className="font-black text-[10px] uppercase tracking-wider">{title}</span>
-            <span className="text-[8px] opacity-60 font-bold mt-1">View Official PDF</span>
-        </a>
-    );
-}
 
 export default function StudentDashboard() {
     const [student, setStudent] = useState<any>(null);
@@ -46,11 +18,6 @@ export default function StudentDashboard() {
     const [labs, setLabs] = useState<any[]>([]);
     const [ciaMarks, setCiaMarks] = useState<any[]>([]);
     const [semResultLinks, setSemResultLinks] = useState<any[]>([]);
-
-    // States for Advisor Documents
-    const [timetable, setTimetable] = useState<any>(null);
-    const [planner, setPlanner] = useState<any>(null);
-    const [examTimetable, setExamTimetable] = useState<any>(null); // Added for Exam Timetable
     
     const [activeTab, setActiveTab] = useState('courses');
     const [profilePic, setProfilePic] = useState<string | null>(null);
@@ -69,6 +36,7 @@ export default function StudentDashboard() {
 
         const loadData = async () => {
             try {
+                // 1. Fetch student profile
                 const studentRes = await axios.get(`${API_URL}/student/${userId}`);
                 const studentData = studentRes.data;
                 setStudent(studentData);
@@ -79,6 +47,7 @@ export default function StudentDashboard() {
                     setProfilePic(`https://ui-avatars.com/api/?name=${studentData.name}&background=random`);
                 }
 
+                // 2. Fetch Announcements
                 const annRes = await axios.get(`${API_URL}/announcements?student_id=${userId}`);
                 const filteredAnnouncements = annRes.data.filter((a: any) => {
                     if (a.type === 'Placement') {
@@ -88,26 +57,20 @@ export default function StudentDashboard() {
                 });
                 setAnnouncements(filteredAnnouncements);
 
+                // 3. Fetch CIA Marks & Derive Courses/Labs
                 const ciaRes = await axios.get(`${API_URL}/marks/cia?student_id=${userId}`);
                 const allSubjects = ciaRes.data;
                 setCiaMarks(allSubjects);
                 
                 setCourses(allSubjects.filter((m: any) => !m.subject.toLowerCase().includes('(lab)'))
-                    .map((m: any) => ({ code: m.subject, title: "Course Content", credits: 3 })));
+                    .map((m: any) => ({ code: m.subject, title: "Course Content" })));
 
                 setLabs(allSubjects.filter((m: any) => m.subject.toLowerCase().includes('(lab)'))
-                    .map((l: any) => ({ code: l.subject, title: "Practical Session", next_session: "Refer Timetable" })));
+                    .map((l: any) => ({ code: l.subject, title: "Practical Session" })));
 
+                // 4. Fetch Global result links
                 const resultsRes = await axios.get(`${API_URL}/materials/Global`);
-                const allGlobalDocs = resultsRes.data;
-
-                setSemResultLinks(allGlobalDocs.filter((m: any) => m.type === 'Result Link' || m.type === 'Result'));
-
-                const sectionTag = `(${studentData.section})`; 
-                
-                setTimetable(allGlobalDocs.find((m: any) => m.type === 'Timetable' && m.title.includes(sectionTag)));
-                setPlanner(allGlobalDocs.find((m: any) => m.type === 'Academic Planner' && m.title.includes(sectionTag)));
-                setExamTimetable(allGlobalDocs.find((m: any) => m.type === 'Exam Timetable' && m.title.includes(sectionTag))); // Fetching Exam Timetable
+                setSemResultLinks(resultsRes.data.filter((m: any) => m.type === 'Result Link' || m.type === 'Result'));
 
             } catch (error) {
                 console.error("Error fetching student dashboard data:", error);
@@ -160,7 +123,7 @@ export default function StudentDashboard() {
         <div className="min-h-screen flex flex-col bg-gray-50">
             <Navbar />
             <div className="container mx-auto px-4 py-8 flex-grow">
-                <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-10">
                     <h1 className="text-3xl font-bold text-blue-900 tracking-tight">Student Dashboard</h1>
                     <div className="flex gap-3 items-center">
                         <div className={`flex flex-col items-center px-4 py-1 border-2 rounded-xl transition-all duration-500 ${getCgpaStyle(student.cgpa || 0)}`}>
@@ -172,6 +135,7 @@ export default function StudentDashboard() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    {/* Sidebar Profile */}
                     <div className="bg-white p-6 rounded-lg shadow-md md:col-span-1 h-fit border-t-4 border-orange-500">
                         <div className="flex flex-col items-center mb-6">
                             <div className="relative group w-32 h-32">
@@ -190,7 +154,7 @@ export default function StudentDashboard() {
                             <div className="pt-2">
                                 <p className="font-semibold text-gray-500 mb-1 text-xs uppercase tracking-widest">Attendance</p>
                                 <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden border">
-                                    <div className={`h-3 rounded-full transition-all duration-1000 ${student.attendance_percentage < 75 ? 'bg-red-500' : 'bg-green-600'}`} style={{ width: `${student.attendance_percentage}%` }}></div>
+                                    <div className={`h-3 rounded-full transition-all duration-1000 ${student.attendance_percentage < 75 ? 'bg-red-500' : 'bg-blue-900'}`} style={{ width: `${student.attendance_percentage}%` }}></div>
                                 </div>
                                 <p className="text-right text-xs mt-1 font-bold">{student.attendance_percentage}%</p>
                             </div>
@@ -198,23 +162,25 @@ export default function StudentDashboard() {
                     </div>
 
                     <div className="md:col-span-2 space-y-8">
-                        {/* --- IMPORTANT NOTICE HUB --- */}
-                        <div className="bg-white p-6 rounded-2xl shadow-md border-t-4 border-orange-500 mb-8 overflow-hidden relative">
-                            <Bell size={100} className="absolute -right-8 -bottom-8 opacity-5 text-orange-200 pointer-events-none" />
-                            <div className="flex items-center gap-2 mb-6">
-                                <div className="bg-orange-100 p-2 rounded-lg"><Bell className="text-orange-600" size={20} /></div>
-                                <div>
-                                    <h2 className="text-xl font-black text-blue-900 uppercase tracking-tighter leading-none">Important Notices</h2>
-                                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-1">Official Documents & Schedules</p>
-                                </div>
+                        {/* THE NOTICE BOARD PORTAL (Simple Light Theme) */}
+                        <div className="bg-white p-6 rounded-2xl shadow-md border-t-4 border-blue-900 flex flex-col sm:flex-row justify-between items-center gap-4 relative overflow-hidden group">
+                            <div className="bg-blue-50 p-3 rounded-xl">
+                                <Bell className="text-blue-600" size={24} />
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 relative z-10">
-                                <NoticeButton doc={timetable} title="Class Timetable" icon={<Clock size={20} className="text-blue-600" />} color="blue" />
-                                <NoticeButton doc={planner} title="Academic Planner" icon={<Calendar size={20} className="text-orange-600" />} color="orange" />
-                                <NoticeButton doc={examTimetable} title="Exam Timetable" icon={<FileText size={20} className="text-red-600" />} color="red" />
+                            <div className="text-center sm:text-left z-10">
+                                <h2 className="text-xl font-bold text-blue-900 uppercase tracking-tight">Official Notice Board</h2>
+                                <p className="text-xs text-gray-400 font-medium">Timetables, Academic Planners & Exam Schedules</p>
                             </div>
+                            <button 
+                                onClick={() => router.push('/student/notices')}
+                                className="bg-blue-900 text-white px-8 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-orange-500 transition-all shadow-md flex items-center gap-2 z-10"
+                            >
+                                Open Board <ChevronRight size={18} />
+                            </button>
+                            <Bell size={100} className="absolute -right-8 -bottom-8 opacity-5 text-blue-900 pointer-events-none" />
                         </div>
 
+                        {/* Announcements Section */}
                         <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-900">
                             <h2 className="text-xl font-bold mb-4 text-blue-900 flex items-center gap-2"><Bell className="text-orange-500" /> Academic Updates</h2>
                             {announcements.filter(a => a.type !== 'Placement' && a.type !== 'Lab').length > 0 ? (
@@ -232,10 +198,15 @@ export default function StudentDashboard() {
                             ) : <p className="text-gray-400 italic text-sm">No specific notices for your section yet.</p>}
                         </div>
 
+                        {/* Tabs Area */}
                         <div className="bg-white p-6 rounded-lg shadow-md min-h-[500px]">
                             <div className="flex border-b mb-6 overflow-x-auto pb-1 no-scrollbar gap-2">
                                 {['courses', 'labs', 'cia', 'results', 'placements', 'fees', 'topper'].map((tab) => (
-                                    <button key={tab} onClick={() => handleTabClick(tab)} className={`px-4 py-3 font-bold whitespace-nowrap transition border-b-4 uppercase text-[10px] tracking-widest ${activeTab === tab ? 'text-orange-600 border-orange-500 bg-orange-50/30' : 'text-gray-400 border-transparent hover:text-blue-900'}`}>
+                                    <button 
+                                        key={tab} 
+                                        onClick={() => handleTabClick(tab)} 
+                                        className={`px-4 py-3 font-bold whitespace-nowrap transition border-b-4 uppercase text-[10px] tracking-widest ${activeTab === tab ? 'text-orange-600 border-orange-500 bg-orange-50/30' : 'text-gray-400 border-transparent hover:text-blue-900'}`}
+                                    >
                                         {tab === 'cia' ? 'CIA Progress' : tab === 'results' ? 'Sem Results' : tab === 'topper' ? 'Toppers' : tab}
                                     </button>
                                 ))}
@@ -245,9 +216,9 @@ export default function StudentDashboard() {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                     {courses.length > 0 ? courses.map((course: any) => (
                                         <div key={course.code} onClick={() => router.push(`/student/course/${course.code}`)} className="bg-white border border-gray-100 p-5 rounded-xl hover:shadow-lg transition border-t-4 border-t-blue-500 cursor-pointer group">
-                                            <h4 className="font-bold text-gray-800 flex justify-between items-center text-md">{course.code} <ChevronRight size={16} className="text-blue-500" /></h4>
-                                            <p className="text-xs text-gray-500 mt-1 font-medium">Course Content</p>
-                                            <div className="mt-4 text-[9px] text-blue-600 bg-blue-50 inline-block px-3 py-1 rounded font-bold uppercase tracking-widest">View Materials</div>
+                                            <h4 className="font-bold text-gray-800 flex justify-between items-center text-md uppercase">{course.code} <ChevronRight size={16} className="text-blue-500" /></h4>
+                                            <p className="text-xs text-gray-500 mt-1 font-medium italic">Course Content</p>
+                                            <div className="mt-4 text-[9px] text-blue-600 bg-blue-50 inline-block px-3 py-1 rounded font-bold uppercase tracking-widest group-hover:bg-blue-600 group-hover:text-white">View Materials</div>
                                         </div>
                                     )) : <p className="text-center py-10 text-gray-400 italic text-sm col-span-2">No theory subjects found.</p>}
                                 </div>
@@ -283,7 +254,7 @@ export default function StudentDashboard() {
                                                 const grandTotal = bestCIA1 + bestCIA2 + totalIA;
                                                 return (
                                                     <tr key={i} className="border-b hover:bg-gray-50">
-                                                        <td className="p-4 font-bold text-blue-900">{m.subject}<p className="text-[8px] text-gray-400 font-normal uppercase mt-1">CIA: 60M | IA: 40M</p></td>
+                                                        <td className="p-4 font-bold text-blue-900 uppercase">{m.subject}<p className="text-[8px] text-gray-400 font-normal uppercase mt-1">CIA: 60M | IA: 40M</p></td>
                                                         <td className="p-4 text-center font-medium">{bestCIA1}</td><td className="p-4 text-center font-black text-blue-600 bg-blue-50/50">{m.ia1_marks || 0}</td><td className="p-4 text-center font-medium">{bestCIA2}</td><td className="p-4 text-center font-black text-blue-600 bg-blue-50/50">{m.ia2_marks || 0}</td><td className="p-4 text-center font-bold bg-orange-50 text-orange-700">{grandTotal}</td>
                                                     </tr>
                                                 );
@@ -296,41 +267,66 @@ export default function StudentDashboard() {
                             {activeTab === 'results' && (
                                 <div className="space-y-4 animate-in fade-in duration-300">
                                     {semResultLinks.length > 0 ? semResultLinks.map((link: any, index: number) => (
-                                        <div key={index} className="p-6 border-2 border-dashed border-blue-200 rounded-xl bg-blue-50/30 flex flex-col sm:flex-row justify-between items-center gap-4 hover:border-blue-400 transition-colors group">
-                                            <div className="text-center sm:text-left"><h3 className="font-black text-blue-900 uppercase tracking-tight text-lg">{link.title}</h3><p className="text-[10px] text-gray-500 font-bold mt-1 uppercase tracking-widest">Official Portal Link</p></div>
-                                            <a href={link.file_link} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-md flex items-center gap-2 group-hover:scale-105">Check Results <ExternalLink size={14}/></a>
+                                        <div key={index} className="p-6 border-2 border-dashed border-blue-200 rounded-xl bg-blue-50/30 flex flex-col sm:flex-row justify-between items-center gap-4 group">
+                                            <div className="text-center sm:text-left"><h3 className="font-bold text-blue-900 uppercase tracking-tight text-lg">{link.title}</h3><p className="text-[10px] text-gray-500 font-bold uppercase">Official Portal Link</p></div>
+                                            <a href={link.file_link} target="_blank" rel="noopener noreferrer" className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold text-xs uppercase tracking-widest hover:bg-blue-700 transition shadow-md flex items-center gap-2">Check Results <ExternalLink size={14}/></a>
                                         </div>
-                                    )) : <div className="text-center py-20 bg-gray-50 rounded-3xl"><Clock className="mx-auto text-gray-200 mb-4" size={50} /><p className="text-gray-400 font-black uppercase text-[10px] tracking-[0.2em]">Semester results are pending declaration.</p></div>}
+                                    )) : <div className="text-center py-20 bg-gray-50 rounded-3xl"><p className="text-gray-400 font-black uppercase text-[10px] tracking-widest">Semester results pending declaration.</p></div>}
                                 </div>
                             )}
 
                             {activeTab === 'placements' && (
-                                <div className="space-y-4 animate-in fade-in duration-500">
-                                    <h2 className="text-xl font-black text-blue-900 uppercase mb-6 flex items-center gap-2"><Briefcase className="text-orange-500" /> Targeted Placement Drives</h2>
+                                <div className="space-y-6 animate-in fade-in duration-500">
+                                    <h2 className="text-2xl font-black text-blue-900 uppercase mb-8 flex items-center gap-3 tracking-tighter">
+                                        <Briefcase className="text-orange-500" /> Placement Drives
+                                    </h2>
                                     {announcements.filter(a => a.type === 'Placement').length > 0 ? announcements.filter(a => a.type === 'Placement').map((ann: any) => (
-                                        <div key={ann.id} className="p-6 border-l-8 border-orange-500 bg-white shadow-md rounded-r-xl border border-gray-100 hover:shadow-lg transition-all">
-                                            <div className="flex justify-between items-start mb-2"><h3 className="font-black text-blue-900 uppercase text-sm tracking-tight">{ann.title}</h3><span className="text-[9px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-black uppercase tracking-widest flex items-center gap-1"><Calendar size={10}/> {new Date(ann.created_at).toLocaleDateString()}</span></div>
-                                            <p className="text-sm text-gray-600 mb-4 leading-relaxed font-medium">{ann.content}</p>
-                                            {ann.external_link && <a href={ann.external_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-blue-900 text-white px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-blue-800 transition-all shadow-sm">Register Now <ExternalLink size={14} /></a>}
+                                        <div key={ann.id} className="p-8 border-l-[16px] border-orange-500 bg-white shadow-xl rounded-r-[32px] border border-gray-100">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <h3 className="font-black text-blue-900 uppercase text-lg tracking-tight">{ann.title}</h3>
+                                                <span className="text-[9px] bg-orange-100 text-orange-700 px-4 py-1.5 rounded-full font-black uppercase tracking-widest flex items-center gap-2">
+                                                    <Calendar size={12}/> {new Date(ann.created_at).toLocaleDateString()}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm text-gray-500 mb-8 leading-relaxed font-bold">{ann.content}</p>
+                                            {ann.external_link && (
+                                                <a href={ann.external_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-3 bg-blue-900 text-white px-8 py-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-orange-500 transition-all shadow-lg">
+                                                    Register Now <ExternalLink size={16} />
+                                                </a>
+                                            )}
                                         </div>
-                                    )) : <div className="text-center py-24 border-2 border-dashed rounded-3xl"><Briefcase className="mx-auto text-gray-200 mb-4" size={48} /><p className="text-gray-400 font-black uppercase text-[10px] tracking-[0.2em]">No placement drives for your year currently.</p></div>}
+                                    )) : (
+                                        <div className="text-center py-24 border-4 border-dashed rounded-[40px] border-gray-100">
+                                            <Briefcase className="mx-auto text-gray-100 mb-6" size={60} />
+                                            <p className="text-gray-300 font-black uppercase text-[10px] tracking-[0.4em]">No placement drives currently.</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
                             {activeTab === 'fees' && (
-                                <div className="space-y-6 animate-in fade-in duration-500">
-                                    <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
-                                        <div className="bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><CreditCard size={32} /></div>
-                                        <h2 className="text-2xl font-black text-blue-900 uppercase tracking-tight">Academic Fee Payment</h2>
-                                        <p className="text-gray-500 mt-2 max-w-md mx-auto text-sm">Click below to access the Vel Tech Clique portal to clear your tuition, hostel, or exam fees.</p>
-                                        <div className="mt-8"><button onClick={() => window.open('https://apps.veltech.edu.in/clique/', '_blank')} className="bg-blue-600 text-white px-10 py-4 rounded-xl font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-700 transition-all shadow-lg hover:shadow-blue-200 flex items-center gap-3 mx-auto group">Proceed to Pay <ExternalLink size={16} className="group-hover:translate-x-1 transition-transform" /></button></div>
-                                        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4 border-t pt-8">
-                                            <div className="text-center"><p className="text-[10px] font-black text-gray-400 uppercase">Step 1</p><p className="text-xs font-bold text-blue-900">Login with VTU ID</p></div>
-                                            <div className="text-center"><p className="text-[10px] font-black text-gray-400 uppercase">Step 2</p><p className="text-xs font-bold text-blue-900">Verify Fee Structure</p></div>
-                                            <div className="text-center"><p className="text-[10px] font-black text-gray-400 uppercase">Step 3</p><p className="text-xs font-bold text-blue-900">Download Receipt</p></div>
+                                <div className="space-y-8 animate-in fade-in duration-500">
+                                    <div className="bg-white border-2 border-blue-50 rounded-[40px] p-12 text-center shadow-sm relative overflow-hidden">
+                                        <div className="bg-blue-100 text-blue-900 w-24 h-24 rounded-[32px] flex items-center justify-center mx-auto mb-8 transition-transform hover:rotate-6">
+                                            <CreditCard size={40} />
+                                        </div>
+                                        <h2 className="text-3xl font-bold text-blue-900 uppercase tracking-tighter">Academic Fee Payment</h2>
+                                        <p className="text-gray-400 mt-4 max-w-md mx-auto text-xs font-bold leading-relaxed uppercase tracking-widest">Access Clique portal for tuition and hostel fees.</p>
+                                        
+                                        <div className="mt-12">
+                                            <button 
+                                                onClick={() => window.open('https://apps.veltech.edu.in/clique/', '_blank')} 
+                                                className="bg-blue-900 text-white px-12 py-5 rounded-[24px] font-black uppercase text-xs tracking-widest hover:bg-orange-500 transition-all shadow-2xl flex items-center gap-4 mx-auto group"
+                                            >
+                                                Proceed to Pay <ExternalLink size={20} className="group-hover:translate-x-1 transition-transform" />
+                                            </button>
                                         </div>
                                     </div>
-                                    <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl"><p className="text-[10px] text-orange-700 font-bold uppercase leading-relaxed text-center">* Note: Fees once paid through the portal will reflect in your records within 24-48 working hours.</p></div>
+                                    <div className="bg-orange-900 p-6 rounded-2xl shadow-xl">
+                                        <p className="text-[10px] text-white font-bold uppercase leading-relaxed text-center tracking-[0.1em]">
+                                            * Note: Fees once paid reflect in 24-48 working hours.
+                                        </p>
+                                    </div>
                                 </div>
                             )}
                         </div>

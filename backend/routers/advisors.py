@@ -3,7 +3,13 @@ from sqlalchemy.orm import Session
 from typing import List
 import shutil
 import os
+import time
+import logging
 from .. import models, database
+
+# Configure logging to catch those 500 errors in the console
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/advisors", tags=["Class Advisor"])
 
@@ -88,17 +94,21 @@ async def upload_advisor_docs(
         class_folder = os.path.join(UPLOAD_DIR, str(year), section)
         os.makedirs(class_folder, exist_ok=True)
         
-        # Define and save file
-        file_path = os.path.join(class_folder, file.filename)
+        # Sanitize filename and add timestamp to prevent file collision/overwrite errors
+        timestamp = int(time.time())
+        safe_filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
+        file_path = os.path.join(class_folder, safe_filename)
+        
+        # Save actual file to disk
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # Format path for DB (Web-friendly slashes)
         db_file_link = file_path.replace("\\", "/")
         
+        # FIXED: Removed 'content' keyword because it caused 500 Internal Server Error
         new_doc = models.Material(
             title=f"{type} - Year {year} ({section})",
-            content=f"Official {type} for Year {year} Section {section}",
             type=type,
             file_link=db_file_link,
             posted_by="Class Advisor",
@@ -107,14 +117,17 @@ async def upload_advisor_docs(
         
         db.add(new_doc)
         db.commit()
+        db.refresh(new_doc)
         
+        logger.info(f"File uploaded successfully: {db_file_link}")
         return {"message": f"{type} published successfully", "link": db_file_link}
         
     except Exception as e:
-        db.rollback() 
-        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+        db.rollback() # Important to clean up the DB session on error
+        logger.error(f"Upload Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
-# 5. NEW: Fetch uploaded advisor documents for management
+# 5. Fetch uploaded advisor documents for management
 @router.get("/my-docs/{section}")
 def get_my_advisor_docs(section: str, db: Session = Depends(database.get_db)):
     # Finds "Global" materials that contain the specific section tag in the title
@@ -125,7 +138,7 @@ def get_my_advisor_docs(section: str, db: Session = Depends(database.get_db)):
     ).all()
     return docs
 
-# 6. NEW: Delete advisor document
+# 6. Delete advisor document
 @router.delete("/delete-doc/{doc_id}")
 def delete_advisor_doc(doc_id: int, db: Session = Depends(database.get_db)):
     doc = db.query(models.Material).filter(models.Material.id == doc_id).first()
@@ -136,8 +149,8 @@ def delete_advisor_doc(doc_id: int, db: Session = Depends(database.get_db)):
     if os.path.exists(doc.file_link):
         try:
             os.remove(doc.file_link)
-        except Exception:
-            pass # Keep going if file is already gone
+        except Exception as e:
+            logger.warning(f"Could not delete physical file: {str(e)}")
         
     db.delete(doc)
     db.commit()

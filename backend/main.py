@@ -806,3 +806,7 @@ def get_classwise_toppers(year: int, section: str, db: Session = Depends(get_db)
 def debug_all_materials(db: Session = Depends(get_db)):
     materials = db.query(models.Material).all()
     return {"total": len(materials), "materials": [{"id": m.id, "code": m.course_code, "type": m.type, "title": m.title} for m in materials]}
+# Add this to backend/main.py
+from fastapi import Request
+import traceback
+
