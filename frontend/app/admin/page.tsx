@@ -9,7 +9,7 @@ import {
     Users, GraduationCap, UserCog, ArrowLeft, 
     Search, Trash2, BookOpen, PlusCircle, Bell, Trophy, 
     Link as LinkIcon, Edit2, X, ChevronDown, Building2, Briefcase, UserCheck,
-    FileText, Filter
+    FileText, Filter, Megaphone
 } from 'lucide-react';
 
 // Searchable Dropdown Component
@@ -138,19 +138,16 @@ export default function AdminDashboard() {
     const [announcementTitle, setAnnouncementTitle] = useState('');
     const [announcementContent, setAnnouncementContent] = useState('');
     const [announcementType, setAnnouncementType] = useState('Global');
+    const [announcementsList, setAnnouncementsList] = useState<any[]>([]);
 
     // --- Result Links State ---
     const [resultTitle, setResultTitle] = useState('');
     const [resultUrl, setResultUrl] = useState('');
     const [resultLinks, setResultLinks] = useState<any[]>([]); 
 
-    // --- NEW: Class Advisor Mapping State ---
+    // --- Class Advisor Mapping State ---
     const [advisorData, setAdvisorData] = useState({
-        advisor_no: '',
-        faculty_id: '',
-        year: 1,
-        semester: 1,
-        section: 'A'
+        advisor_no: '', faculty_id: '', year: 1, semester: 1, section: 'A'
     });
 
     // --- User Creation States ---
@@ -183,6 +180,7 @@ export default function AdminDashboard() {
     }, [router]);
 
     useEffect(() => {
+        if (activeTab === 'announcements') fetchAnnouncements();
         if (activeTab === 'sem result link') fetchResultLinks();
     }, [activeTab]);
 
@@ -219,6 +217,14 @@ export default function AdminDashboard() {
             const res = await axios.get(`${API_URL}/admin/students?${params.toString()}`);
             setStudentsList(res.data);
         } catch (err) { console.error("Fetch Student Error:", err); }
+    };
+
+    const fetchAnnouncements = async () => {
+        try {
+            // Fetch Global as a baseline, but you can adjust based on your backend logic
+            const res = await axios.get(`${API_URL}/announcements`);
+            setAnnouncementsList(res.data);
+        } catch (err) { console.error("Error fetching announcements", err); }
     };
 
     const fetchResultLinks = async () => {
@@ -291,7 +297,17 @@ export default function AdminDashboard() {
             });
             alert("Announcement posted!");
             setAnnouncementTitle(''); setAnnouncementContent('');
+            fetchAnnouncements();
         } catch (err) { alert('Failed to post announcement'); }
+    };
+
+    const handleDeleteAnnouncement = async (id: number) => {
+        if (!confirm("Remove this announcement from the public feed?")) return;
+        try {
+            await axios.delete(`${API_URL}/announcements/${id}`);
+            alert("Announcement removed");
+            fetchAnnouncements();
+        } catch (err) { alert("Failed to delete announcement"); }
     };
 
     const handlePostResultLink = async (e: React.FormEvent) => {
@@ -424,17 +440,52 @@ export default function AdminDashboard() {
                     {/* TAB: Announcements */}
                     {activeTab === 'announcements' && (
                         <div className="animate-in fade-in duration-300">
-                            <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Bell className="text-blue-600" /> Publish Announcement</h2>
-                            <form onSubmit={handlePostAnnouncement} className="space-y-4 max-w-lg">
-                                <select value={announcementType} onChange={(e) => setAnnouncementType(e.target.value)} className="w-full p-2.5 border rounded-lg bg-gray-50">
-                                    <option value="Global">Global (All Users)</option>
-                                    <option value="Faculty">Faculties Only</option>
-                                    <option value="Student">Students Only</option>
-                                </select>
-                                <input type="text" placeholder="Title" value={announcementTitle} onChange={(e) => setAnnouncementTitle(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required />
-                                <textarea placeholder="Message Content..." value={announcementContent} onChange={(e) => setAnnouncementContent(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" rows={5} required />
-                                <button type="submit" className="bg-blue-900 text-white px-8 py-2.5 rounded-lg hover:bg-blue-800 transition-colors font-semibold shadow-md">Broadcast</button>
-                            </form>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                                <div>
+                                    <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><Megaphone className="text-blue-600" /> Publish Announcement</h2>
+                                    <form onSubmit={handlePostAnnouncement} className="space-y-4 max-w-lg">
+                                        <select value={announcementType} onChange={(e) => setAnnouncementType(e.target.value)} className="w-full p-2.5 border rounded-lg bg-gray-50">
+                                            <option value="Global">Global (All Users)</option>
+                                            <option value="Faculty">Faculties Only</option>
+                                            <option value="Student">Students Only</option>
+                                        </select>
+                                        <input type="text" placeholder="Title" value={announcementTitle} onChange={(e) => setAnnouncementTitle(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" required />
+                                        <textarea placeholder="Message Content..." value={announcementContent} onChange={(e) => setAnnouncementContent(e.target.value)} className="w-full p-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" rows={5} required />
+                                        <button type="submit" className="bg-blue-900 text-white px-8 py-2.5 rounded-lg hover:bg-blue-800 transition-colors font-semibold shadow-md w-full">Broadcast Notice</button>
+                                    </form>
+                                </div>
+
+                                <div className="border-l lg:pl-12">
+                                    <h2 className="text-xl font-bold mb-6 uppercase tracking-tighter flex items-center gap-2">
+                                        <Bell size={20} className="text-orange-500" /> Live Feed
+                                    </h2>
+                                    <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {announcementsList.length > 0 ? announcementsList.map((ann) => (
+                                            <div key={ann.id} className="p-4 border rounded-xl bg-gray-50 flex justify-between items-start group hover:bg-white transition-all shadow-sm border-l-4 border-l-blue-600">
+                                                <div className="flex-1 pr-4">
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <h4 className="font-bold text-blue-900 text-sm">{ann.title}</h4>
+                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">{ann.type}</span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-600 line-clamp-2">{ann.content}</p>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleDeleteAnnouncement(ann.id)}
+                                                    className="p-2 text-gray-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                    title="Delete Announcement"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        )) : (
+                                            <div className="text-center py-20 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                                                <Bell className="mx-auto text-gray-200 mb-2" size={40} />
+                                                <p className="text-gray-400 text-sm">No announcements currently active.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
 
