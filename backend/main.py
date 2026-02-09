@@ -4,29 +4,31 @@ import time
 import csv
 import io
 import logging
+import traceback
 import pandas as pd
 from io import BytesIO
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from pydantic import BaseModel
-from .routers import placements
-from . import models, schemas
-from .database import SessionLocal, engine
-# At the top of main.py, with your other imports
-from .routers import advisors
-from .routers import placements  # This imports your new placement file
-from .database import SessionLocal, engine, get_db # Ensure get_db is here now
-from fastapi.staticfiles import StaticFiles
 
-# --- 1. SETUP STORAGE ---
+# --- 1. SETUP & IMPORTS ---
+from . import models, schemas
+from .database import SessionLocal, engine, get_db
+from .routers import placements, advisors
+
+# Create base directories immediately to prevent "Directory does not exist" errors
 UPLOAD_DIR = "uploaded_files"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR)
-    os.makedirs("uploads/advisor_docs", exist_ok=True)
+ADVISOR_DIR = "uploads/advisor_docs"
+
+for folder in [UPLOAD_DIR, "uploads", ADVISOR_DIR]:
+    if not os.path.exists(folder):
+        os.makedirs(folder, exist_ok=True)
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,22 +41,24 @@ def ensure_profile_columns():
     """Safely adds columns and cleans up existing data formatting issues."""
     try:
         with engine.connect() as conn:
-            # Check Faculty table
+            # Safely check and add columns to Faculty table
             col_info = conn.execute(text("PRAGMA table_info('faculty')")).fetchall()
-            cols = [c[1] for c in col_info]
-            if 'profile_pic' not in cols:
-                conn.execute(text("ALTER TABLE faculty ADD COLUMN profile_pic TEXT"))
-                logger.info("Added 'profile_pic' column to faculty table.")
+            if col_info: # Only if table exists
+                cols = [c[1] for c in col_info]
+                if 'profile_pic' not in cols:
+                    conn.execute(text("ALTER TABLE faculty ADD COLUMN profile_pic TEXT"))
+                    logger.info("Added 'profile_pic' column to faculty table.")
 
-            # Check Students table
+            # Safely check and add columns to Students table
             col_info = conn.execute(text("PRAGMA table_info('students')")).fetchall()
-            cols = [c[1] for c in col_info]
-            if 'profile_pic' not in cols:
-                conn.execute(text("ALTER TABLE students ADD COLUMN profile_pic TEXT"))
-                logger.info("Added 'profile_pic' column to students table.")
+            if col_info:
+                cols = [c[1] for c in col_info]
+                if 'profile_pic' not in cols:
+                    conn.execute(text("ALTER TABLE students ADD COLUMN profile_pic TEXT"))
+                    logger.info("Added 'profile_pic' column to students table.")
             
             # CRITICAL CLEANUP: Fix existing data formatting
-            # This washes data like '21ai31t ' into '21AI31T' so fetching never fails
+            # This ensures '21ai31t ' becomes '21AI31T' so fetches never fail
             conn.execute(text("UPDATE materials SET course_code = UPPER(TRIM(course_code))"))
             conn.execute(text("UPDATE academic_data SET course_code = UPPER(TRIM(course_code))"))
             
@@ -63,29 +67,42 @@ def ensure_profile_columns():
     except Exception as e:
         logger.error(f"Migration/Cleanup failed: {e}")
 
+# Run migration check on startup
 ensure_profile_columns()
 
 # --- 2. INITIALIZE THE APP ---
-app = FastAPI()
+app = FastAPI(title="College Management System API")
 
-app.include_router(placements.router)
-
-app.include_router(advisors.router)
-
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
-# --- 3. MOUNT STATIC FILES ---
-app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
-
+# --- MIDDLEWARE & SECURITY ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Or your specific localhost:3000
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Database Session Dependency
+# Global Exception Handler to catch 500 errors and print them to terminal
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as exc:
+        logger.error("--- CRITICAL INTERNAL SERVER ERROR ---")
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal Server Error: {str(exc)}", "trace": traceback.format_summary(traceback.extract_tb(exc.__traceback__))[0]}
+        )
+
+# --- MOUNT STATIC FILES ---
+# Mounting /uploads for Advisor Docs and /static for General Uploads
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
+
+# --- INCLUDE ROUTERS ---
+app.include_router(placements.router)
+app.include_router(advisors.router)
 
 # --- PYDANTIC MODELS ---
 class MarkSyncRequest(BaseModel):
@@ -190,7 +207,6 @@ def admin_create_user(data: AdminUserCreateRequest, db: Session = Depends(get_db
         logger.error(f"Creation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- BULK UPLOAD FROM CSV ---
 @app.post("/admin/bulk-upload/{role}")
 async def bulk_upload_users(role: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith('.csv'):
@@ -228,7 +244,6 @@ async def bulk_upload_users(role: str, file: UploadFile = File(...), db: Session
                 db.add(profile)
                 db.flush()
 
-                # Sync enrollment for ALL courses matching semester and section (including Labs)
                 courses = db.query(models.Course).filter(
                     models.Course.semester == profile.semester,
                     models.Course.section == profile.section
@@ -274,7 +289,6 @@ def add_course(course: schemas.CourseCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_course)
 
-    # Automatically enroll all existing students into this new course (handles Labs added after students)
     existing_students = db.query(models.Student).filter(
         models.Student.semester == course.semester,
         models.Student.section == course.section
@@ -325,7 +339,7 @@ def enroll_student(data: AdminEnrollmentRequest, db: Session = Depends(get_db)):
             course_id=course.id,
             course_code=data.course_code,
             subject=course.title,
-            section=student.section, # Explicitly use student's section for Lab accuracy
+            section=student.section, 
             status="Pursuing"
         )
         db.add(enrollment)
@@ -449,8 +463,6 @@ def sync_marks(data: MarkSyncRequest, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Sync successful"}
 
-# --- EXCEL AUTOMATION ENDPOINTS ---
-
 @app.post("/marks/process-excel")
 async def process_marks_excel(
     file: UploadFile = File(...),
@@ -461,7 +473,6 @@ async def process_marks_excel(
 ):
     try:
         contents = await file.read()
-        # Handle college format header (first 4 rows skip)
         if file.filename.endswith('.csv'):
             df = pd.read_csv(BytesIO(contents), skiprows=4)
         else:
@@ -482,8 +493,6 @@ async def process_marks_excel(
                 continue
             
             raw_mark = str(row[mark_col]).strip().upper()
-            
-            # Robust logic for ABSENT (AB) or empty cells
             if raw_mark in ['AB', 'NAN', '', 'NONE', 'N/A']:
                 mark_val = 0.0
             else:
@@ -513,7 +522,6 @@ def bulk_sync_excel_marks(request: BulkExcelSyncRequest, db: Session = Depends(g
                 models.AcademicData.course_code == request.course_code
             ).first()
             if record:
-                # Dynamically set attribute based on entity choice (ia1_marks, cia2_marks etc)
                 setattr(record, request.entity, entry.mark)
                 updated_count += 1
         db.commit()
@@ -536,7 +544,6 @@ def get_student_marks(student_id: str, db: Session = Depends(get_db)):
         "cia2_retest": m.cia2_retest or 0, 
         "ia2_marks": m.ia2_marks or 0,
         "subject_attendance": m.subject_attendance or 0,
-        # Display logic: max of (regular or retest) + IA marks
         "total": (max(m.cia1_marks or 0, m.cia1_retest or 0) + 
                   max(m.cia2_marks or 0, m.cia2_retest or 0) + 
                   (m.ia1_marks or 0) + (m.ia2_marks or 0))
@@ -557,7 +564,6 @@ async def upload_material(
 ):
     try:
         file_link = None
-        # Always clean course code before saving to ensure consistency
         clean_course_code = course_code.strip().upper()
         
         if file:
@@ -594,23 +600,17 @@ async def upload_material(
 
 @app.get("/materials/{identifier}")
 def get_course_materials(identifier: str, db: Session = Depends(get_db)):
-    """Smart fetch: searches by ID, Code, or Subject Title to ensure student sees files."""
-    # 1. Search by Numeric Course ID
     if identifier.isdigit():
         return db.query(models.Material).filter(models.Material.course_id == int(identifier)).all()
     
-    # 2. Direct search by Course Code in Materials table
     clean_id = identifier.strip().upper()
     materials = db.query(models.Material).filter(
         (models.Material.course_code == clean_id) | 
         (models.Material.course_code.ilike(f"%{clean_id}%"))
     ).all()
     
-    if materials:
-        return materials
+    if materials: return materials
 
-    # 3. If not found directly, the 'identifier' is likely a Subject Title.
-    # We find the code associated with this title in AcademicData or Course table.
     course_ref = db.query(models.AcademicData).filter(
         (models.AcademicData.subject.ilike(f"%{identifier}%")) | 
         (models.AcademicData.course_code.ilike(f"%{identifier}%"))
@@ -620,13 +620,7 @@ def get_course_materials(identifier: str, db: Session = Depends(get_db)):
         return db.query(models.Material).filter(
             models.Material.course_code == course_ref.course_code
         ).all()
-        
     return []
-
-@app.get("/materials/course/{course_code}")
-def get_materials_by_course_section(course_code: str, section: Optional[str] = None, db: Session = Depends(get_db)):
-    clean_code = course_code.strip().upper()
-    return db.query(models.Material).filter(models.Material.course_code.ilike(f"%{clean_code}%")).all()
 
 @app.delete("/materials/{material_id}")
 def delete_material(material_id: int, db: Session = Depends(get_db)):
@@ -638,10 +632,8 @@ def delete_material(material_id: int, db: Session = Depends(get_db)):
 
 @app.post("/announcements")
 def create_announcement(announcement: schemas.AnnouncementCreate, db: Session = Depends(get_db)):
-    # Standardize the course code before saving
     cleaned_code = "Global"
     if announcement.course_code and announcement.course_code.upper() != "GLOBAL":
-        # Remove (Lab) suffixes and whitespace, then uppercase
         cleaned_code = announcement.course_code.upper().replace(' (LAB)', '').replace('(LAB)', '').strip()
 
     db_announcement = models.Announcement(
@@ -649,8 +641,8 @@ def create_announcement(announcement: schemas.AnnouncementCreate, db: Session = 
         content=announcement.content, 
         type=announcement.type,
         posted_by=announcement.posted_by, 
-        course_code=cleaned_code, # Save cleaned code
-        section=getattr(announcement, 'section', 'All') # Save specific section
+        course_code=cleaned_code,
+        section=getattr(announcement, 'section', 'All')
     )
     db.add(db_announcement)
     db.commit()
@@ -806,7 +798,12 @@ def get_classwise_toppers(year: int, section: str, db: Session = Depends(get_db)
 def debug_all_materials(db: Session = Depends(get_db)):
     materials = db.query(models.Material).all()
     return {"total": len(materials), "materials": [{"id": m.id, "code": m.course_code, "type": m.type, "title": m.title} for m in materials]}
-# Add this to backend/main.py
-from fastapi import Request
-import traceback
 
+@app.delete("/announcements/{announcement_id}")
+def delete_announcement(announcement_id: int, db: Session = Depends(get_db)):
+    ann = db.query(models.Announcement).filter(models.Announcement.id == announcement_id).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+    db.delete(ann)
+    db.commit()
+    return {"message": "Announcement deleted successfully"}
